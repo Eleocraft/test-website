@@ -2,8 +2,6 @@
 {
   lib,
   dockerTools,
-  writeText,
-  caddy,
   site,
   name ? "test-website",
   tag ? "latest",

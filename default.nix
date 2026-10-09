@@ -3,6 +3,10 @@
   runCommand,
   stdenv,
   lib,
+  makeWrapper,
+  bun,
+  pname ? "test-website",
+  version ? "0.0.1",
   ...
 }:
 let
@@ -16,12 +20,34 @@ let
     bun2nix -l ${./bun.lock} -o $out
   '';
 in
-bun2nix.mkDerivation {
-  packageJson = ./package.json;
+stdenv.mkDerivation {
+  inherit pname;
+  inherit version;
 
   src = ./.;
+
+  nativeBuildInputs = [
+    bun2nix.hook
+    makeWrapper
+  ];
 
   bunDeps = bun2nix.fetchBunDeps {
     inherit bunNix;
   };
+
+  buildPhase = ''
+    bun run build \
+      --minify
+  '';
+
+  installPhase = ''
+    mkdir -p $out/share/${pname} $out/bin
+
+    cp -R ./build $out/share/${pname}/build
+
+    makeWrapper ${lib.getExe bun} $out/bin/${pname} \
+      --add-flags "$out/share/${pname}/build/index.js"
+  '';
+
+  meta.mainProgram = pname;
 }
