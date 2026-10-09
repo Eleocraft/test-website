@@ -1,0 +1,67 @@
+# Build the OCI image with Nix and publish it to the GitHub Container Registry.
+name: Build and publish container image
+
+on:
+  # Runs on pushes targeting the default branch.
+  push:
+    branches: ['main']
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# Allow pulling the repo and pushing packages (GHCR) with GITHUB_TOKEN.
+permissions:
+  contents: read
+  packages: write
+
+# Allow only one concurrent publish, skipping runs queued between the run
+# in-progress and the latest queued.
+concurrency:
+  group: 'container'
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Nix
+        uses: NixOS/nix-installer-action@main
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes
+            # bun2nix cache
+            extra-substituters = https://nix-community.cachix.org
+            extra-trusted-public-keys = nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=
+
+      - name: Build image
+        shell: bash
+        run: nix build .#container --print-build-logs
+
+      - name: Install skopeo
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y skopeo
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `result` is the docker-archive produced by dockerTools.buildLayeredImage.
+      # skopeo pushes it directly — no Docker daemon involved. GHCR requires a
+      # lowercase image path. Pushes to `main` are unstable builds tagged
+      # `latest` plus the commit SHA so deployments can pin an exact build.
+      # Promoting a build to a stable release is handled by promote_release.yml.
+      - name: Push image
+        shell: bash
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          skopeo copy --insecure-policy \
+            docker-archive:result "docker://${IMAGE}:latest"
+          skopeo copy --insecure-policy \
+            docker-archive:result "docker://${IMAGE}:${GITHUB_SHA}"
